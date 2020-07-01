@@ -39,7 +39,7 @@ class PipelineTest {
                 "INFO: Sending email"
         ), log.getLoggedLines());
 
-        verify(emailer).send("Deployment completed successfully");
+        verify(emailer).send("Deployment successful");
     }
 
     @Test
@@ -79,7 +79,7 @@ class PipelineTest {
                 "INFO: Sending email"
         ), log.getLoggedLines());
 
-        verify(emailer).send("Deployment completed successfully");
+      verify(emailer).send("Deployment successful");
     }
 
     @Test

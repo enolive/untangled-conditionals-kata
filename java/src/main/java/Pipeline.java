@@ -47,7 +47,7 @@ public class Pipeline {
             log.info("Sending email");
             if (testsPassed) {
                 if (deploySuccessful) {
-                    emailer.send("Deployment completed successfully");
+                    emailer.send("Deployment successful");
                 } else {
                     emailer.send("Deployment failed");
                 }
