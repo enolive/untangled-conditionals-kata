@@ -32,7 +32,7 @@ public class Pipeline {
   }
 
   public void run(Project project) {
-    Try.traverse(steps(this::runTests, this::runDeployment),
+    Try.traverse(steps(Pipeline::runTests, Pipeline::runDeployment),
                  f -> f.apply(project).andThen(log::info))
        .onFailure(this::logError)
        .map(Traversable::last)
@@ -40,12 +40,7 @@ public class Pipeline {
        .andThen(this::sendNotification);
   }
 
-  @SafeVarargs
-  private List<Function<Project, Try<String>>> steps(Function<Project, Try<String>>... fs) {
-    return List.of(fs);
-  }
-
-  private Try<String> runTests(Project project) {
+  private static Try<String> runTests(Project project) {
     if (!project.hasTests()) {
       return Try.success("No tests");
     }
@@ -55,11 +50,20 @@ public class Pipeline {
     return Try.failure(new TestsFailedException());
   }
 
-  private Try<String> runDeployment(Project project) {
+  private static Try<String> runDeployment(Project project) {
     if (isSuccessful(project.deploy())) {
       return Try.success("Deployment successful");
     }
     return Try.failure(new DeploymentFailedException());
+  }
+
+  private static boolean isSuccessful(String s) {
+    return "success".equals(s);
+  }
+
+  @SafeVarargs
+  private static List<Function<Project, Try<String>>> steps(Function<Project, Try<String>>... fs) {
+    return List.of(fs);
   }
 
   private void sendNotification(String message) {
@@ -73,9 +77,5 @@ public class Pipeline {
 
   private void logError(Throwable e) {
     log.error(e.getMessage());
-  }
-
-  private boolean isSuccessful(String s) {
-    return "success".equals(s);
   }
 }
