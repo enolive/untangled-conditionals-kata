@@ -2,6 +2,23 @@ import dependencies.Config;
 import dependencies.Emailer;
 import dependencies.Logger;
 import dependencies.Project;
+import io.vavr.collection.Traversable;
+import io.vavr.control.Try;
+
+import java.util.List;
+import java.util.function.Function;
+
+class TestsFailedException extends RuntimeException {
+  public TestsFailedException() {
+    super("Tests failed");
+  }
+}
+
+class DeploymentFailedException extends RuntimeException {
+  public DeploymentFailedException() {
+    super("Deployment failed");
+  }
+}
 
 public class Pipeline {
   private final Config config;
@@ -15,47 +32,50 @@ public class Pipeline {
   }
 
   public void run(Project project) {
-    boolean testsPassed;
-    boolean deploySuccessful;
+    Try.traverse(steps(this::runTests, this::runDeployment),
+                 f -> f.apply(project).andThen(log::info))
+       .onFailure(this::logError)
+       .map(Traversable::last)
+       .recover(Throwable::getMessage)
+       .andThen(this::sendNotification);
+  }
 
-    if (project.hasTests()) {
-      if ("success".equals(project.runTests())) {
-        log.info("Tests passed");
-        testsPassed = true;
-      } else {
-        log.error("Tests failed");
-        testsPassed = false;
-      }
-    } else {
-      log.info("No tests");
-      testsPassed = true;
+  @SafeVarargs
+  private List<Function<Project, Try<String>>> steps(Function<Project, Try<String>>... fs) {
+    return List.of(fs);
+  }
+
+  private Try<String> runTests(Project project) {
+    if (!project.hasTests()) {
+      return Try.success("No tests");
     }
-
-    if (testsPassed) {
-      if ("success".equals(project.deploy())) {
-        log.info("Deployment successful");
-        deploySuccessful = true;
-      } else {
-        log.error("Deployment failed");
-        deploySuccessful = false;
-      }
-    } else {
-      deploySuccessful = false;
+    if (isSuccessful(project.runTests())) {
+      return Try.success("Tests passed");
     }
+    return Try.failure(new TestsFailedException());
+  }
 
+  private Try<String> runDeployment(Project project) {
+    if (isSuccessful(project.deploy())) {
+      return Try.success("Deployment successful");
+    }
+    return Try.failure(new DeploymentFailedException());
+  }
+
+  private void sendNotification(String message) {
     if (config.sendEmailSummary()) {
       log.info("Sending email");
-      if (testsPassed) {
-        if (deploySuccessful) {
-          emailer.send("Deployment successful");
-        } else {
-          emailer.send("Deployment failed");
-        }
-      } else {
-        emailer.send("Tests failed");
-      }
+      emailer.send(message);
     } else {
       log.info("Email disabled");
     }
+  }
+
+  private void logError(Throwable e) {
+    log.error(e.getMessage());
+  }
+
+  private boolean isSuccessful(String s) {
+    return "success".equals(s);
   }
 }
