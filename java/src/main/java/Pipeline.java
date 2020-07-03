@@ -8,18 +8,6 @@ import io.vavr.control.Try;
 import java.util.List;
 import java.util.function.Function;
 
-class TestsFailedException extends RuntimeException {
-  public TestsFailedException() {
-    super("Tests failed");
-  }
-}
-
-class DeploymentFailedException extends RuntimeException {
-  public DeploymentFailedException() {
-    super("Deployment failed");
-  }
-}
-
 public class Pipeline {
   private final Config config;
   private final Emailer emailer;
@@ -77,5 +65,17 @@ public class Pipeline {
 
   private void logError(Throwable e) {
     log.error(e.getMessage());
+  }
+
+  private static class TestsFailedException extends RuntimeException {
+    public TestsFailedException() {
+      super("Tests failed");
+    }
+  }
+
+  private static class DeploymentFailedException extends RuntimeException {
+    public DeploymentFailedException() {
+      super("Deployment failed");
+    }
   }
 }
