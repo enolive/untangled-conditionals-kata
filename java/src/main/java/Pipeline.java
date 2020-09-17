@@ -2,11 +2,17 @@ import dependencies.Config;
 import dependencies.Emailer;
 import dependencies.Logger;
 import dependencies.Project;
+import io.vavr.collection.List;
+import io.vavr.collection.Traversable;
+import io.vavr.control.Try;
+
+import java.util.function.Function;
 
 public class Pipeline {
   private final Config config;
   private final Emailer emailer;
   private final Logger log;
+  private final List<Function<Project, Try<String>>> pipelineSteps = List.of(this::runTests, this::deploy);
 
   public Pipeline(Config config, Emailer emailer, Logger log) {
     this.config = config;
@@ -15,47 +21,49 @@ public class Pipeline {
   }
 
   public void run(Project project) {
-    boolean testsPassed;
-    boolean deploySuccessful;
+    Try.traverse(pipelineSteps, runStepOn(project))
+       .map(Traversable::last)
+       .onFailure(this::logError)
+       .recover(Throwable::getMessage)
+       .flatMap(this::sendEmailNotification)
+       .onSuccess(log::info);
+  }
 
-    if (project.hasTests()) {
-      if ("success".equals(project.runTests())) {
-        log.info("Tests passed");
-        testsPassed = true;
-      } else {
-        log.error("Tests failed");
-        testsPassed = false;
-      }
-    } else {
-      log.info("No tests");
-      testsPassed = true;
-    }
+  private Function<Function<Project, Try<String>>, Try<? extends String>> runStepOn(Project project) {
+    return pipelineStep -> pipelineStep.apply(project).onSuccess(log::info);
+  }
 
-    if (testsPassed) {
-      if ("success".equals(project.deploy())) {
-        log.info("Deployment successful");
-        deploySuccessful = true;
-      } else {
-        log.error("Deployment failed");
-        deploySuccessful = false;
-      }
-    } else {
-      deploySuccessful = false;
-    }
+  private void logError(Throwable throwable) {
+    log.error(throwable.getMessage());
+  }
 
-    if (config.sendEmailSummary()) {
-      log.info("Sending email");
-      if (testsPassed) {
-        if (deploySuccessful) {
-          emailer.send("Deployment successful");
-        } else {
-          emailer.send("Deployment failed");
-        }
-      } else {
-        emailer.send("Tests failed");
-      }
-    } else {
-      log.info("Email disabled");
+  private Try<String> runTests(Project project) {
+    if (!project.hasTests()) {
+      return Try.success("No tests");
     }
+    if (!isSuccessful(project.runTests())) {
+      return Try.failure(new RuntimeException("Tests failed"));
+    }
+    return Try.success("Tests passed");
+  }
+
+  private Try<String> deploy(Project project) {
+    if (!isSuccessful(project.deploy())) {
+      return Try.failure(new RuntimeException("Deployment failed"));
+    }
+    return Try.success("Deployment successful");
+  }
+
+  @SuppressWarnings("BooleanMethodIsAlwaysInverted")
+  private boolean isSuccessful(String s) {
+    return "success".equals(s);
+  }
+
+  private Try<String> sendEmailNotification(String message) {
+    if (!config.sendEmailSummary()) {
+      return Try.success("Email disabled");
+    }
+    emailer.send(message);
+    return Try.success("Sending email");
   }
 }
