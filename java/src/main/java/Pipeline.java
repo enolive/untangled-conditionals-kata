@@ -8,6 +8,18 @@ import io.vavr.control.Try;
 
 import java.util.function.Function;
 
+class TestFailedError extends RuntimeException {
+  public TestFailedError() {
+    super("Tests failed");
+  }
+}
+
+class DeploymentFailedError extends RuntimeException {
+  public DeploymentFailedError() {
+    super("Deployment failed");
+  }
+}
+
 public class Pipeline {
   private final Config config;
   private final Emailer emailer;
@@ -42,14 +54,14 @@ public class Pipeline {
       return Try.success("No tests");
     }
     if (!isSuccessful(project.runTests())) {
-      return Try.failure(new RuntimeException("Tests failed"));
+      return Try.failure(new TestFailedError());
     }
     return Try.success("Tests passed");
   }
 
   private Try<String> deploy(Project project) {
     if (!isSuccessful(project.deploy())) {
-      return Try.failure(new RuntimeException("Deployment failed"));
+      return Try.failure(new DeploymentFailedError());
     }
     return Try.success("Deployment successful");
   }
