@@ -1,81 +1,48 @@
-import dependencies.Config;
-import dependencies.Emailer;
-import dependencies.Logger;
-import dependencies.Project;
-import io.vavr.collection.List;
-import io.vavr.collection.Traversable;
-import io.vavr.control.Try;
+import dependencies.Config
+import dependencies.Emailer
+import dependencies.Logger
+import dependencies.Project
+import io.vavr.control.Try
 
-import java.util.function.Function;
+typealias PipelineStep = (Project) -> Try<String>
 
-class TestFailedError extends RuntimeException {
-  public TestFailedError() {
-    super("Tests failed");
-  }
-}
+class Pipeline(private val config: Config,
+               private val emailer: Emailer,
+               private val log: Logger) {
+  class TestFailedError : RuntimeException("Tests failed")
+  class DeploymentFailedError : RuntimeException("Deployment failed")
 
-class DeploymentFailedError extends RuntimeException {
-  public DeploymentFailedError() {
-    super("Deployment failed");
-  }
-}
+  private val pipelineSteps = listOf<PipelineStep>(::runTests, ::deploy)
 
-public class Pipeline {
-  private final Config config;
-  private final Emailer emailer;
-  private final Logger log;
-  private final List<Function<Project, Try<String>>> pipelineSteps = List.of(this::runTests, this::deploy);
-
-  public Pipeline(Config config, Emailer emailer, Logger log) {
-    this.config = config;
-    this.emailer = emailer;
-    this.log = log;
+  fun run(project: Project) {
+    Try.traverse(pipelineSteps) { runStepOn -> runStepOn(project).onSuccess(log::info) }
+      .map { it.last() }
+      .onFailure(::logError)
+      .recover(Throwable::message)
+      .flatMap(::sendEmailNotification)
+      .onSuccess(log::info)
   }
 
-  public void run(Project project) {
-    Try.traverse(pipelineSteps, runStepOn(project))
-       .map(Traversable::last)
-       .onFailure(this::logError)
-       .recover(Throwable::getMessage)
-       .flatMap(this::sendEmailNotification)
-       .onSuccess(log::info);
+  private fun logError(throwable: Throwable) = log.error(throwable.message)
+
+  private fun runTests(project: Project): Try<String> = when {
+    !project.hasTests()                -> Try.success("No tests")
+    !project.runTests().isSuccessful() -> Try.failure(TestFailedError())
+    else                               -> Try.success("Tests passed")
   }
 
-  private Function<Function<Project, Try<String>>, Try<? extends String>> runStepOn(Project project) {
-    return pipelineStep -> pipelineStep.apply(project).onSuccess(log::info);
+  private fun deploy(project: Project): Try<String> = when {
+    !project.deploy().isSuccessful() -> Try.failure(DeploymentFailedError())
+    else                             -> Try.success("Deployment successful")
   }
 
-  private void logError(Throwable throwable) {
-    log.error(throwable.getMessage());
-  }
+  private fun String.isSuccessful() = "success" == this
 
-  private Try<String> runTests(Project project) {
-    if (!project.hasTests()) {
-      return Try.success("No tests");
-    }
-    if (!isSuccessful(project.runTests())) {
-      return Try.failure(new TestFailedError());
-    }
-    return Try.success("Tests passed");
-  }
-
-  private Try<String> deploy(Project project) {
-    if (!isSuccessful(project.deploy())) {
-      return Try.failure(new DeploymentFailedError());
-    }
-    return Try.success("Deployment successful");
-  }
-
-  @SuppressWarnings("BooleanMethodIsAlwaysInverted")
-  private boolean isSuccessful(String s) {
-    return "success".equals(s);
-  }
-
-  private Try<String> sendEmailNotification(String message) {
+  private fun sendEmailNotification(message: String): Try<String> {
     if (!config.sendEmailSummary()) {
-      return Try.success("Email disabled");
+      return Try.success("Email disabled")
     }
-    emailer.send(message);
-    return Try.success("Sending email");
+    emailer.send(message)
+    return Try.success("Sending email")
   }
 }
